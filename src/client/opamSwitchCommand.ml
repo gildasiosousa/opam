@@ -26,9 +26,8 @@ let slog = OpamConsole.slog
 
 (* name + state + compiler + description *)
 (* TODO: add repo *)
-let list ~print_short ~installed ~all =
+let list gt ~print_short ~installed ~all =
   log "list";
-  let gt = OpamGlobalState.load () in
 
   let installed_switches =
     OpamGlobalState.fold_switches (fun sw sel acc ->
@@ -63,7 +62,7 @@ let list ~print_short ~installed ~all =
   in
   let available, notshown =
     if installed then OpamPackage.Map.empty, 0 else
-    let rt = OpamRepositoryState.load gt in
+    let rt = OpamRepositoryState.load ~lock:`Lock_none gt in
     let st = OpamSwitchState.load_virtual gt rt in
     let is_main_comp_re =
       Re.(compile @@ seq [ bos; rep (diff any (char '+')); eos])
@@ -250,8 +249,7 @@ let install_compiler_packages t atoms =
         solution in
     OpamSolution.check_solution t result
 
-let install_cont ~quiet ~update_config ~packages switch =
-  let gt = OpamGlobalState.load () in
+let install_cont gt ~quiet ~update_config ~packages switch =
   let comp_dir = OpamPath.Switch.root gt.root switch in
   if List.mem switch (OpamFile.Config.installed_switches gt.config) then
     OpamConsole.error_and_exit
@@ -261,10 +259,10 @@ let install_cont ~quiet ~update_config ~packages switch =
     OpamConsole.error_and_exit
       "Directory %S already exists, please choose a different name"
       (OpamFilename.Dir.to_string comp_dir);
-  let gt = OpamSwitchAction.create_empty_switch gt switch in
   let st =
-    if update_config then OpamSwitchAction.set_current_switch gt switch
-    else OpamSwitchState.load gt (OpamRepositoryState.load gt) switch
+    if update_config
+    then OpamSwitchAction.set_current_switch gt ~lock:`Lock_write switch
+    else OpamSwitchState.load_full gt ~lock:`Lock_write switch
   in
   switch,
   fun () ->
@@ -273,25 +271,24 @@ let install_cont ~quiet ~update_config ~packages switch =
       clear_switch ~keep_debug:true gt switch;
       raise e
 
-let install ~quiet ~update_config ~packages switch =
-  (snd (install_cont ~quiet ~update_config ~packages switch)) ()
+let install gt ~quiet ~update_config ~packages switch =
+  (snd (install_cont gt ~quiet ~update_config ~packages switch)) ()
 
-let switch_cont ~quiet ~packages switch =
+let switch_cont gt ~quiet ~packages switch =
   log "switch switch=%a" (slog OpamSwitch.to_string) switch;
-  let gt = OpamGlobalState.load () in
   let switch, cont =
     if List.mem switch (OpamFile.Config.installed_switches gt.config) then
-      let t = OpamSwitchAction.set_current_switch gt switch in
-      OpamEnv.check_and_print_env_warning t;
+      let st = OpamSwitchAction.set_current_switch gt ~lock:`Lock_none switch in
+      OpamEnv.check_and_print_env_warning st;
       switch, fun () -> ()
     else
-      install_cont ~quiet ~update_config:true ~packages switch
+      install_cont gt ~quiet ~update_config:true ~packages switch
   in
   switch,
   cont
 
-let switch ~quiet ~packages switch =
-  (snd (switch_cont ~quiet ~packages switch)) ()
+let switch gt ~quiet ~packages switch =
+  (snd (switch_cont gt ~quiet ~packages switch)) ()
 
 let import_t importfile t =
   log "import switch";
@@ -418,23 +415,27 @@ let read_overlays (read: package -> OpamFile.OPAM.t option) packages =
 let export ?(full=false) filename =
   let switch = OpamStateConfig.get_switch () in
   let root = OpamStateConfig.(!r.root_dir) in
-  let selections = S.safe_read (OpamPath.Switch.selections root switch) in
-  let overlays =
-    read_overlays (fun nv ->
-        OpamFileHandling.read_opam
-          (OpamPath.Switch.Overlay.package root switch nv.name))
-      selections.sel_pinned
-  in
-  let overlays =
-    if full then
-      OpamPackage.Name.Map.union (fun a _ -> a) overlays @@
+  let export =
+    OpamFilename.with_flock `Lock_read (OpamPath.Switch.lock root switch)
+    @@ fun () ->
+    let selections = S.safe_read (OpamPath.Switch.selections root switch) in
+    let overlays =
       read_overlays (fun nv ->
-          OpamFile.OPAM.read_opt
-            (OpamPath.Switch.installed_opam root switch nv))
-        (selections.sel_installed -- selections.sel_pinned)
-    else overlays
+          OpamFileHandling.read_opam
+            (OpamPath.Switch.Overlay.package root switch nv.name))
+        selections.sel_pinned
+    in
+    let overlays =
+      if full then
+        OpamPackage.Name.Map.union (fun a _ -> a) overlays @@
+        read_overlays (fun nv ->
+            OpamFile.OPAM.read_opt
+              (OpamPath.Switch.installed_opam root switch nv))
+          (selections.sel_installed -- selections.sel_pinned)
+      else overlays
+    in
+    { OpamFile.SwitchExport.selections; overlays }
   in
-  let export = { OpamFile.SwitchExport.selections; overlays } in
   match filename with
   | None   -> OpamFile.SwitchExport.write_to_channel stdout export
   | Some f -> OpamFile.SwitchExport.write f export
@@ -446,7 +447,7 @@ let show () =
 let reinstall_gt gt switch =
   log "reinstall switch=%a" (slog OpamSwitch.to_string) switch;
 
-  let init_st = OpamSwitchState.load gt (OpamRepositoryState.load gt) switch in
+  let init_st = OpamSwitchState.load_full gt ~lock:`Lock_write switch in
 
   let switch_root = OpamPath.Switch.root gt.root switch in
   let opam_subdir = OpamPath.Switch.meta gt.root switch in
@@ -508,5 +509,5 @@ let import gt switch filename =
        let importfile = match filename with
          | None   -> OpamFile.SwitchExport.read_from_channel stdin
          | Some f -> OpamFile.SwitchExport.read f in
-       let st = OpamSwitchState.load gt (OpamRepositoryState.load gt) switch in
+       let st = OpamSwitchState.load_full ~lock:`Lock_write gt switch in
        import_t importfile st)

@@ -235,12 +235,12 @@ let print_list t ~uninst_versions ~short ~shortv ~order names =
       ?(depends=[]) ?(reverse_depends=false) ?(recursive_depends=false)
       ?(resolve_depends=false) ?(depopts=false) ?depexts ?dev
       regexp =
-    let gt = OpamGlobalState.load () in
-    let rt = OpamRepositoryState.load gt in
+    let gt = OpamGlobalState.load ~lock:`Lock_none () in
+    let rt = OpamRepositoryState.load ~lock:`Lock_none gt in
     let st =
       match OpamStateConfig.(!r.current_switch) with
       | None -> OpamSwitchState.load_virtual gt rt
-      | Some sw -> OpamSwitchState.load gt rt sw
+      | Some sw -> OpamSwitchState.load ~lock:`Lock_none gt rt sw
     in
     let depends_mode = depends <> [] in
     let get_version name =
