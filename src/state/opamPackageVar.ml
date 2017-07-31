@@ -148,7 +148,7 @@ let all_depends ?build ?test ?doc ?dev ?(filter_default=false)
     ~env:(resolve_switch ~package:(OpamFile.OPAM.package opam) st) deps
 
 (* filter handling *)
-let rec resolve st ?opam:opam_arg ?(local=OpamVariable.Map.empty) v =
+let resolve st ?opam:opam_arg ?(local=OpamVariable.Map.empty) v =
   let dirname dir = string (OpamFilename.Dir.to_string dir) in
   let pkgname = OpamStd.Option.map OpamFile.OPAM.name opam_arg in
   let read_package_var v =
