@@ -155,14 +155,27 @@ val to_atom_formula: t -> atom formula
 val of_atom_formula: atom formula -> t
 
 (** Reduces the formula, finding a shorter description of the same version set.
-    Keeps conflicting formula, for documentation, when the set is empty. *)
-val simplify_version_formula: version_formula -> version_formula
+    Returns [None] when the set is empty (i.e. there are conflicting
+    constraints). *)
+val simplify_version_formula: version_formula -> version_formula option
 
 (** A more aggressive version of [simplify_version_formula] that attempts to
     find a shorter formula describing the same subset of versions within a given
-    set. The empty formula is returned for an empty set, and the original
-    formula is otherwise returned as is if no versions match. *)
-val simplify_version_set: OpamPackage.Version.Set.t -> version_formula -> version_formula
+    set. The empty formula is returned if applied to an empty set, and [None] is
+    otherwise returned as is if no versions match. *)
+val simplify_version_set:
+  OpamPackage.Version.Set.t -> version_formula -> version_formula option
+
+(** Lower-level function to simplify formulas based on inequalities. Takes a
+    comparison function and functions to extract and rebuild inequalities: these
+    can raise [Failure] to indicate that the element can't be compared, in which
+    case the corresponding part of the formula is preserved. Returns [None] if
+    the formula would simplify to [false] (e.g. [ <1 & >2 ]), [Empty] if it is a
+    tautology. *)
+val simplify_ineq_formula:
+  ('a -> 'a -> int) ->
+  ('b -> relop * 'a) * (relop * 'a -> 'b) ->
+  'b formula -> 'b formula option
 
 (** {2 Atoms} *)
 

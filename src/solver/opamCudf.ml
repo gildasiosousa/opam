@@ -279,7 +279,10 @@ let strings_of_reason packages cudfnv2opam unav_reasons r =
               atoms)
         in
         let all_versions = OpamPackage.versions_of_name packages name in
-        let formula = OpamFormula.simplify_version_set all_versions formula in
+        let formula =
+          OpamStd.Option.default formula @@
+          OpamFormula.simplify_version_set all_versions formula
+        in
         unav_reasons (name, formula))
       names
   | Missing _ (* dependency missing, treated in strings_of_chains *)
@@ -342,7 +345,10 @@ let make_chains packages cudfnv2opam depends =
           OpamPackage.Name.of_string (Common.CudfAdd.decode name)
         in
         let all_versions = OpamPackage.versions_of_name packages opam_name in
-        let formula = OpamFormula.simplify_version_set all_versions formula in
+        let formula =
+          OpamStd.Option.default formula @@
+          OpamFormula.simplify_version_set all_versions formula
+        in
         let formula = opam_name, formula in
         let children_constrs =
           List.map (fun p -> try Map.find p vpkgs with Not_found -> [])
@@ -375,7 +381,10 @@ let strings_of_chains packages cudfnv2opam unav_reasons reasons =
     match List.rev c with
     | (name, vform) :: _ ->
       let all_versions = OpamPackage.versions_of_name packages name in
-      let formula = OpamFormula.simplify_version_set all_versions vform in
+      let formula =
+        OpamStd.Option.default vform @@
+        OpamFormula.simplify_version_set all_versions vform
+      in
       arrow_concat (List.map (fun c -> OpamFormula.to_string (Atom c)) c)
       ^ (match unav_reasons (name, formula) with "" -> "" | s -> "\n" ^ s)
     | [] -> ""

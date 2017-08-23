@@ -410,79 +410,264 @@ let set_to_disjunction set t =
     (ors_to_list t) |>
   List.flatten
 
-let simplify_ineq_formula vcomp f =
-  (* backported from OWS/WeatherReasons *)
+let simplify_ineq_formula vcomp (get_ineq, make_ineq) f0 =
+  (* originally backported from OWS/WeatherReasons *)
   let vmin a b = if vcomp a b <= 0 then a else b in
   let vmax a b = if vcomp a b >= 0 then a else b in
-  let and_cstrs c1 c2 = match c1, c2 with
-    | (`Gt, a), (`Gt, b) -> [`Gt, vmax a b]
-    | (`Geq,a), (`Geq,b) -> [`Geq, vmax a b]
+  let mk ineq = `Reduced (make_ineq ineq) in
+  let and_cstrs c1 c2 =
+    let ifc a op b r = if op (vcomp a b) 0 then mk r else `False in
+    let ifp a op b r = if op (vcomp a b) 0 then mk r else `Nred in
+    match get_ineq c1, get_ineq c2 with
+    | (`Gt, a), (`Gt, b)                      -> mk (`Gt, vmax a b)
+    | (`Geq,a), (`Geq,b)                      -> mk (`Geq,vmax a b)
     | (`Gt, a), (`Geq,b) | (`Geq,b), (`Gt, a) ->
-        if vcomp a b >= 0 then [(`Gt, a)] else [(`Geq,b)]
-    | (`Lt, a), (`Lt, b) -> [`Lt, vmin a b]
-    | (`Leq,a), (`Leq,b) -> [`Leq, vmin a b]
+      if vcomp a b >= 0 then mk (`Gt, a) else mk (`Geq, b)
+    | (`Lt, a), (`Lt, b) -> mk (`Lt, vmin a b)
+    | (`Leq,a), (`Leq,b) -> mk (`Leq, vmin a b)
     | (`Lt, a), (`Leq,b) | (`Leq,b), (`Lt, a) ->
-        if vcomp a b <= 0 then [`Lt, a] else [`Leq,b]
-    | (`Geq,a), (`Eq, b) | (`Eq, b), (`Geq,a) when vcomp a b <= 0 -> [`Eq, b]
-    | (`Gt, a), (`Eq, b) | (`Eq, b), (`Gt, a) when vcomp a b <  0 -> [`Eq, b]
-    | (`Leq,a), (`Eq, b) | (`Eq, b), (`Leq,a) when vcomp a b >= 0 -> [`Eq, b]
-    | (`Leq,a), (`Geq,b) | (`Geq,b), (`Leq,a) when vcomp a b =  0 -> [`Eq, a]
-    | (`Lt, a), (`Eq, b) | (`Eq, b), (`Lt, a) when vcomp a b >  0 -> [`Eq, b]
-    | (`Geq,a), (`Neq,b) | (`Neq,b), (`Geq,a) when vcomp a b >  0 -> [`Geq,a]
-    | (`Gt, a), (`Neq,b) | (`Neq,b), (`Gt, a) when vcomp a b >= 0 -> [`Gt, a]
-    | (`Leq,a), (`Neq,b) | (`Neq,b), (`Leq,a) when vcomp a b <  0 -> [`Leq,a]
-    | (`Lt, a), (`Neq,b) | (`Neq,b), (`Lt, a) when vcomp a b <= 0 -> [`Lt, a]
-    | c1, c2 -> if c1 = c2 then [c1] else [c1;c2]
+      if vcomp a b <= 0 then mk (`Lt, a) else mk (`Leq,b)
+    | (`Geq,a), (`Eq, b) | (`Eq, b), (`Geq,a) -> ifc a (<=) b (`Eq, b)
+    | (`Gt, a), (`Eq, b) | (`Eq, b), (`Gt, a) -> ifc a (< ) b (`Eq, b)
+    | (`Leq,a), (`Eq, b) | (`Eq, b), (`Leq,a) -> ifc a (>=) b (`Eq, b)
+    | (`Lt, a), (`Eq, b) | (`Eq, b), (`Lt, a) -> ifc a (> ) b (`Eq, b)
+    | (`Geq,a), (`Neq,b) | (`Neq,b), (`Geq,a) -> ifp a (> ) b (`Geq,a)
+    | (`Gt, a), (`Neq,b) | (`Neq,b), (`Gt, a) -> ifp a (>=) b (`Gt, a)
+    | (`Leq,a), (`Neq,b) | (`Neq,b), (`Leq,a) -> ifp a (< ) b (`Leq,a)
+    | (`Lt, a), (`Neq,b) | (`Neq,b), (`Lt, a) -> ifp a (<=) b (`Lt, a)
+    | (`Eq, a), (`Eq, b)                      -> ifc a (= ) b (`Eq, a)
+    | (`Neq,a), (`Neq,b)                      -> ifp a (= ) b (`Neq,a)
+    | (`Eq, a), (`Neq,b) | (`Neq,b), (`Eq, a) -> ifc a (<>) b (`Eq, a)
+    | (`Geq,a), (`Leq,b) | (`Leq,b), (`Geq,a) ->
+      let c = vcomp a b in
+      if c = 0 then mk (`Eq, a) else
+      if c < 0 then `Nred else `False
+    | (`Gt, a), (`Lt, b) | (`Lt, b), (`Gt, a)
+    | (`Gt, a), (`Leq,b) | (`Leq,b), (`Gt, a)
+    | (`Geq,a), (`Lt, b) | (`Lt, b), (`Geq,a) ->
+      if vcomp a b < 0 then `Nred else `False
   in
-  let or_cstrs c1 c2 = match c1, c2 with
-    | (`Gt, a), (`Gt, b) -> [`Gt, vmin a b]
-    | (`Geq,a), (`Geq,b) -> [`Geq, vmin a b]
+  let or_cstrs c1 c2 =
+    let ifa a op b r = if op (vcomp a b) 0 then mk r else `True in
+    let ifp a op b r = if op (vcomp a b) 0 then mk r else `Nred in
+    match get_ineq c1, get_ineq c2 with
+    | (`Gt, a), (`Gt, b) -> mk (`Gt, vmin a b)
+    | (`Geq,a), (`Geq,b) -> mk (`Geq, vmin a b)
     | (`Gt, a), (`Geq,b) | (`Geq,b), (`Gt, a) ->
-        if vcomp a b < 0 then [`Gt, a] else [`Geq,b]
-    | (`Lt, a), (`Lt, b) -> [`Lt, vmax a b]
-    | (`Leq,a), (`Leq,b) -> [`Leq,vmax a b]
+      if vcomp a b < 0 then mk (`Gt, a) else mk (`Geq,b)
+    | (`Lt, a), (`Lt, b) -> mk (`Lt, vmax a b)
+    | (`Leq,a), (`Leq,b) -> mk (`Leq,vmax a b)
     | (`Lt, a), (`Leq,b) | (`Leq,b), (`Lt, a) ->
-        if vcomp a b > 0 then [`Lt, a] else [`Leq,b]
-    | (`Geq,a), (`Eq, b) | (`Eq, b), (`Geq,a) when vcomp a b <= 0 -> [`Geq,a]
-    | (`Gt, a), (`Eq, b) | (`Eq, b), (`Gt, a) when vcomp a b <  0 -> [`Gt, a]
-    | (`Leq,a), (`Eq, b) | (`Eq, b), (`Leq,a) when vcomp a b >= 0 -> [`Leq,a]
-    | (`Leq,a), (`Geq,b) | (`Geq,b), (`Leq,a) when vcomp a b =  0 -> []
-    | (`Lt, a), (`Eq, b) | (`Eq, b), (`Lt, a) when vcomp a b >  0 -> [`Lt, a]
-    | (`Geq,a), (`Neq,b) | (`Neq,b), (`Geq,a) when vcomp a b >  0 -> [`Neq,b]
-    | (`Gt, a), (`Neq,b) | (`Neq,b), (`Gt, a) when vcomp a b >= 0 -> [`Neq,b]
-    | (`Leq,a), (`Neq,b) | (`Neq,b), (`Leq,a) when vcomp a b <  0 -> [`Neq,b]
-    | (`Lt, a), (`Neq,b) | (`Neq,b), (`Lt, a) when vcomp a b <= 0 -> [`Neq,b]
-    | c1, c2 -> if c1 = c2 then [c1] else [c1;c2]
+      if vcomp a b > 0 then mk (`Lt, a) else mk (`Leq,b)
+    | (`Geq,a), (`Eq, b) | (`Eq, b), (`Geq,a) -> ifp a (<=) b (`Geq,a)
+    | (`Gt, a), (`Eq, b) | (`Eq, b), (`Gt, a) -> ifp a (< ) b (`Gt, a)
+    | (`Leq,a), (`Eq, b) | (`Eq, b), (`Leq,a) -> ifp a (>=) b (`Leq,a)
+    | (`Lt, a), (`Eq, b) | (`Eq, b), (`Lt, a) -> ifp a (> ) b (`Lt, a)
+    | (`Geq,a), (`Neq,b) | (`Neq,b), (`Geq,a) -> ifa a (> ) b (`Neq,b)
+    | (`Gt, a), (`Neq,b) | (`Neq,b), (`Gt, a) -> ifa a (>=) b (`Neq,b)
+    | (`Leq,a), (`Neq,b) | (`Neq,b), (`Leq,a) -> ifa a (< ) b (`Neq,b)
+    | (`Lt, a), (`Neq,b) | (`Neq,b), (`Lt, a) -> ifa a (<=) b (`Neq,b)
+    | (`Eq, a), (`Eq, b)                      -> ifp a (= ) b (`Eq, a)
+    | (`Neq,a), (`Neq,b)                      -> ifa a (= ) b (`Neq,a)
+    | (`Eq, a), (`Neq,b) | (`Neq,b), (`Eq, a) -> ifa a (<>) b (`Neq,b)
+    | (`Gt, a), (`Lt, b) | (`Lt, b), (`Gt, a) ->
+      let c = vcomp a b in
+      if c = 0 then mk (`Neq,a) else
+      if c < 0 then `True else `Nred
+    | (`Geq,a), (`Leq,b) | (`Leq,b), (`Geq,a)
+    | (`Geq,a), (`Lt, b) | (`Lt, b), (`Geq,a)
+    | (`Gt, a), (`Leq,b) | (`Leq,b), (`Gt, a) ->
+      if vcomp a b <= 0 then `True else `Nred
   in
-  let rec add_cstr join c = function
-    | [] -> [c]
-    | c1::r -> match join c c1 with
-      | [c] -> add_cstr join c r
-      | _ -> c1 :: add_cstr join c r
+  let rec simpl_conj_and acc a conj = match conj with
+    | [] -> Some (a, acc)
+    | b::r -> match and_cstrs a b with
+      | `False -> None
+      | `Nred -> simpl_conj_and (b::acc) a r
+      | `Reduced c ->
+        match simpl_conj_and [] c acc with
+        | None -> None
+        | Some (c, acc) -> simpl_conj_and acc c r
   in
-  let rec merge mk join fl =
-    let subs,cstrs =
-      List.fold_left (fun (sub,cstrs) fl ->
-          match aux fl with
-          | Atom c -> sub, add_cstr join c cstrs
-          | f -> mk sub f, cstrs)
-        (Empty,[]) fl
-    in
-    List.fold_left (fun f c -> mk f (Atom c)) subs cstrs
-  and aux = function
-    | And _ as f -> merge make_and and_cstrs (ands_to_list f)
-    | Or _ as f -> merge make_or or_cstrs (ors_to_list f)
-    | Block f -> aux f
-    | (Atom _ | Empty) as f -> f
+  let rec simpl_conj acc = function
+    | [] -> Some acc
+    | a :: r ->
+      match simpl_conj_and [] a r with
+      | None -> None
+      | Some (b, rem) -> simpl_conj (b::acc) rem
   in
-  aux f
+  let len2 = List.fold_left (List.fold_left (fun x l -> x + List.length l)) 0 in
+  let simpl_cnf_or cnf1 cnf2 =
+    try
+      let maxlen = len2 cnf1 + len2 cnf2 in
+      let _len, simpl, nsimpl =
+        List.fold_left (fun acc disj_a ->
+            List.fold_left (fun (len,simpl,nsimpl) disj_b ->
+                if len > maxlen then raise Exit
+                else
+                match simpl_disj [] disj_a disj_b with
+                | None -> acc
+                
+                simpl (acc & d)
+                len + List.length d, 
 
+                (* a and b are now disjunctions; simplify the junction *)
+                  let disj = simpl_disj_or a b in
+                  List.length disj, disj
+
+
+ match or_cstrs a b with
+                  | `True -> len, simpl, nsimpl
+                  | `Nred -> len + 2, simpl, ([a;b] :: nsimpl)
+                  | `Reduced c ->
+                    match simpl_conj_and [] c simpl with
+                    | Some (c, simpl) -> len + 1, c::simpl, nsimpl
+                    | None -> assert false)
+              acc conj2)
+          (0,[],[]) conj1
+      in
+      match simpl, nsimpl with
+      | [], [] -> `True
+      | simpl, [] -> `Conj simpl
+      | simpl, nsimpl -> `Cnf (List.map (fun x -> [x]) simpl @ nsimpl)
+    with Exit -> `Nred
+  in
+
+
+  let simpl_conj_or conj1 conj2 =
+    try
+      let maxlen = List.length conj1 + List.length conj2 in
+      let _len, simpl, nsimpl =
+        List.fold_left (fun acc a ->
+            List.fold_left (fun (len,simpl,nsimpl) b ->
+                if len > maxlen then raise Exit
+                else match or_cstrs a b with
+                  | `True -> len, simpl, nsimpl
+                  | `Nred -> len + 2, simpl, ([a;b] :: nsimpl)
+                  | `Reduced c ->
+                    match simpl_conj_and [] c simpl with
+                    | Some (c, simpl) -> len + 1, c::simpl, nsimpl
+                    | None -> assert false)
+              acc conj2)
+          (0,[],[]) conj1
+      in
+      match simpl, nsimpl with
+      | [], [] -> `True
+      | simpl, [] -> `Conj simpl
+      | simpl, nsimpl -> `Cnf (List.map (fun x -> [x]) simpl @ nsimpl)
+    with Exit -> `Nred
+  in
+  let rec simpl_dnf_or acc conj dnf = match dnf with
+    | [] -> Some (`Conj conj, acc)
+    | conj1 :: dnf ->
+      match simpl_conj_or conj conj1 with
+      | `Nred -> simpl_dnf_or (conj1 :: acc) conj dnf
+      | `True -> None
+      | `Conj c -> (match simpl_dnf_or [] c acc with
+          | None -> None
+          | Some (`Conj conj, acc) ->
+            simpl_dnf_or acc conj dnf)
+      | `Cnf cnf ->
+        match simpl_dnf_or (conj1 :: acc) conj dnf with
+        | None -> None
+        | Some (`Conj _, _) as t -> t
+        | Some (`Cnf cnf1, _) as t ->
+          let len =
+            List.fold_left (List.fold_left (fun x l -> x + List.length l)) 0
+          in
+          if len cnf1 < len cnf then t
+          else Some (`Cnf cnf, List.rev_append acc dnf)
+  in
+  let rec simpl_dnf acc_dnf acc_cnf = function
+    | [] -> Some (acc_dnf, acc_cnf)
+    | conj :: dnf ->
+      match simpl_dnf_or [] [] conj dnf with
+      | None -> []
+      | conj, dnf, cnf -> simpl_dnf (dnf::acc_dnf) (cnf::acc_cnf)
+
+  let rec simpl_dnf (acc_conj, acc_cnf) = function
+    | [] -> acc
+    | conj :: dnf ->
+      let rec aux = function
+        | [] -> 
+        | conj1 :: dnf ->
+          match simpl_conj_or conj conj1 with
+          | `True -> `True
+          | `Conj c -> simpl_dnf (
+
+
+
+  let rec simpl_dnf_or acc dnf conj = match dnf with
+    | [] -> `Nred
+    | conj1::dnf -> match simpl_conj_or conj conj1 with
+      | `True -> `True
+      | `Conj c -> `Dnf_or_Cnf (List.rev_append acc (c :: dnf), [])
+      | `Nred -> simpl_dnf_or (conj1::acc) r conj
+      | `Cnf cnf ->
+        match simpl_dnf_or (conj1::acc) dnf conj with
+        | (`True | `Dnf_or_Cnf (_, [])) as t -> t
+        | `Nred -> `Dnf_or_Cnf (List.rev_append acc dnf, cnf)
+        | `Dnf_or_Cnf (_, cnf1) as t ->
+          let len =
+            List.fold_left (List.fold_left (fun x l -> x + List.length l)) 0
+          in
+          if len cnf1 < len cnf then t
+          else `Dnf_or_Cnf (List.rev_append acc dnf, cnf)
+  in
+  let simpl_dnf =
+    List.fold_left (fun acc conj ->
+        match acc with
+        | `True -> `True
+        | `Dnf_or_Cnf (dnf, cnf) ->
+          match simpl_dnf_or [] dnf conj with
+          | `Nred -> `Dnf_or_Cnf (conj::dnf, cnf)
+          | `True -> `True
+          | `Dnf d1 -> `Dnf (d1 @ d)
+          | `Dnf_or_Cnf (d1, cnf) -> `Dnf_or_Cnf )
+      (`Dnf [])
+  in
+  (* Using a dnf ensures we detect conflicting constraints *)
+  let dnf = dnf_of_formula f0 in
+  let dnf =
+    OpamStd.List.filter_map (fun conj ->
+        match simpl_conj conj with
+        | `False -> None
+        | `Conj c -> Some c)
+      dnf
+  in
+  if dnf = [] then None else
+  (* let disj = List.sort (fun l1 l2 -> List.length l1 - List.length l2) disj in *)
+    match simpl_dnf dnf with
+      | `True -> Some Empty
+      | `Dnf d ->
+        (* todo: Sort by v *)
+        Some (ors (List.map ands d))
+
+let simpl = simplify_ineq_formula (fun a b -> a - b) ((fun x -> x), (fun x -> x));;
+
+let print = OpamStd.Option.to_string ~none:"false" (string_of_formula (fun (op, i) -> OpamPrinter.relop op ^ string_of_int i));;
+
+let f1, f2, f3 =
+  let a c x = Atom ((c :> relop), x) in
+  let (&) a b = And (a, b) in
+  let (+) a b = Or (a, b) in
+  (a `Gt 1 & a `Lt 2) + (a `Gt 3 & a `Lt 4) + ((a `Gt 9 + (a `Gt 7 & a `Lt 8)) & a `Lt 12),
+  ((a `Gt 0 & a `Lt 1) + (a `Gt 3 & a `Lt 5)) & (a `Gt 2 & a `Lt 4),
+  (((a `Gt 0 & a `Lt 1) + (a `Gt 3 & a `Lt 5)) & (a `Gt 2)) + (a `Lt 42)
+
+let s1 = print (Some f3)
+let s2 = print (simpl f3)
+
+
+
+;;
 let simplify_version_formula f =
-  simplify_ineq_formula OpamPackage.Version.compare f
+  simplify_ineq_formula OpamPackage.Version.compare
+    ((fun c -> c), (fun c -> c)) f
 
 let simplify_version_set set f =
   let module S = OpamPackage.Version.Set in
-  if S.is_empty set then Empty else
+  if S.is_empty set then Some Empty else
   let set = fold_left (fun set (_relop, v) -> S.add v set) set f in
   let vmin = S.min_elt set in
   S.fold (fun version acc ->
@@ -502,13 +687,16 @@ let simplify_version_set set f =
         | _ -> make_and acc (Atom (`Lt, version)))
     set Empty
   |> function
-  | Atom (`Lt, v) when v = vmin -> f (* No packages match, return unchanged *)
+  | Atom (`Lt, v) when v = vmin -> None
   | f1 ->
-    map_formula (function
-        | And (Atom (`Eq, _) as a1, Atom (`Lt, _)) -> a1
-        | Atom (`Lt, v) when v = vmin -> Empty
-        | f -> f)
-      f1
+    let f =
+      map_formula (function
+          | And (Atom (`Eq, _) as a1, Atom (`Lt, _)) -> a1
+          | Atom (`Lt, v) when v = vmin -> Empty
+          | f -> f)
+        f1
+    in
+    Some f
 
 type 'a ext_package_formula =
   (OpamPackage.Name.t * ('a * version_formula)) formula

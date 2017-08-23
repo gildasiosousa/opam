@@ -526,9 +526,9 @@ let string_of_filtered_formula =
         let paren = match c with Atom (Constraint _) -> false | _ -> true in
         Printf.sprintf "%s %s%s%s"
           (OpamPackage.Name.to_string n)
-          (if paren then "(" else "")
+          (if paren then "{" else "")
           (string_of_constraint c)
-          (if paren then ")" else ""))
+          (if paren then "}" else ""))
 
 let variables_of_filtered_formula ff =
   OpamFormula.fold_left
@@ -553,3 +553,12 @@ let filter_deps ~build ?test ?doc ?dev ?default_version ?default deps =
     | _ -> None
   in
   filter_formula ?default_version ?default env deps
+
+let simplify_extended_version_formula f =
+  OpamFormula.simplify_ineq_formula
+    (fun c1 c2 -> match c1, c2 with
+       | FString v1, FString v2 -> OpamVersionCompare.compare v1 v2
+       | _ -> failwith "version")
+    ((function Filter _ -> failwith "filter" | Constraint c -> c),
+     (fun c -> Constraint c))
+    f
