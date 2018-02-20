@@ -459,7 +459,7 @@ let is_pinned = check s_pinned
 
 let default_preamble =
   let l = [
-    (s_source,         `String None) ;
+    (s_source,         `String None);
     (s_source_number,  `String None);
     (s_reinstall,      `Bool (Some false));
     (s_installed_root, `Bool (Some false));
