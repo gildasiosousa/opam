@@ -10,7 +10,26 @@
 
 open OpamCudfSolverSig
 
-let name = "builtin-"^Mccs.solver_id
+let solver_backend =
+  let open OpamStd.Option.Op in
+  OpamStd.Config.env_string "MCCSBACKEND" >>= function
+  | "glpk" -> Some `GLPK
+  | s when OpamStd.String.starts_with ~prefix:"lp+" s ->
+    let cmd = OpamStd.String.remove_prefix ~prefix:"lp+" s in
+    (match OpamSystem.resolve_command cmd with
+     | None ->
+       OpamConsole.warning
+         "Ignored OPAMMCCSBACKEND environment variable: lp subcommand %S \
+          not found"
+         cmd;
+       None
+     | Some cmd -> Some (`LP cmd))
+  | s ->
+    OpamConsole.warning "Ignored unrecognised value for OPAMMCCSBACKEND: %s"
+      s;
+    None
+
+let name = "builtin-"^Mccs.get_solver_id ?solver:solver_backend ()
 
 let is_present = lazy true
 
@@ -30,7 +49,9 @@ let default_criteria = {
 
 let call ~criteria ?timeout cudf =
   match
-    Mccs.resolve_cudf ~verbose:OpamCoreConfig.(!r.debug_level >= 2)
+    Mccs.resolve_cudf
+      ?solver:solver_backend
+      ~verbose:OpamCoreConfig.(!r.debug_level >= 2)
       ?timeout criteria cudf
   with
   | None -> raise Common.CudfSolver.Unsat
