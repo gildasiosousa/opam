@@ -121,10 +121,10 @@ installlib-%: opam-installer opam-%.install
 	$(if $(wildcard src_ext/lib/*),\
 	  $(error Installing the opam libraries is incompatible with embedding \
 	          the dependencies. Run 'make clean-ext' and try again))
-	$(OPAMINSTALLER) $(OPAMINSTALLER_FLAGS) opam-$*.install
+	$(OPAMINSTALLER) $(OPAMINSTALLER_FLAGS) _build/default/opam-$*.install
 
 uninstalllib-%: opam-installer opam-%.install
-	$(OPAMINSTALLER) -u $(OPAMINSTALLER_FLAGS) opam-$*.install
+	$(OPAMINSTALLER) -u $(OPAMINSTALLER_FLAGS) _build/default/opam-$*.install
 
 libinstall: $(JBUILDER_DEP) opam-admin.top $(OPAMLIBS:%=installlib-%)
 	@
