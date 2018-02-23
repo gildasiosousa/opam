@@ -105,7 +105,7 @@ AS_IF([test "x${enable_developer_mode}" = "xyes"], [AC_SUBST(DEVELOPER,true)], [
 AS_IF([test "x${with_mccs}" = "xno"], [AC_SUBST(MCCS_ENABLED,false)], [AC_SUBST(MCCS_ENABLED,true)])
 
 AS_IF([test "x${CI}" != "x" -o "x${enable_developer_mode}" = "xyes"], [
-  CONF_OCAMLFLAGS="-warn-error A"
+  CONF_OCAMLFLAGS=
 ],[
   CONF_OCAMLFLAGS=
 ])
