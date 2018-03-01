@@ -14,6 +14,10 @@ let solver_backend =
   let open OpamStd.Option.Op in
   OpamStd.Config.env_string "MCCSBACKEND" >>= function
   | "glpk" -> Some `GLPK
+  | "coin" -> Some `COIN_CBC
+  | "coin/clp" -> Some `COIN_CLP
+  | "coin/cbc" -> Some `COIN_CBC
+  | "coin/symphony" -> Some `COIN_SYMPHONY
   | s when OpamStd.String.starts_with ~prefix:"lp+" s ->
     let cmd = OpamStd.String.remove_prefix ~prefix:"lp+" s in
     (match OpamSystem.resolve_command cmd with
