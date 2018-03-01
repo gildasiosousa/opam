@@ -126,7 +126,7 @@ installlib-%: opam-installer opam-%.install
 uninstalllib-%: opam-installer opam-%.install
 	$(OPAMINSTALLER) -u $(OPAMINSTALLER_FLAGS) _build/default/opam-$*.install
 
-libinstall: $(JBUILDER_DEP) opam-admin.top $(OPAMLIBS:%=installlib-%)
+libinstall: $(JBUILDER_DEP) $(OPAMLIBS:%=installlib-%)
 	@
 
 install: opam-actual.install

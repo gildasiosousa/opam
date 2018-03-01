@@ -2,5 +2,5 @@
 
 (alias
   ((name runtest)
-   (deps ((files_recursively_in .) ../src/client/opamMain.exe ../src/tools/opam_check.exe))
-   (action (run make all))))
+   (deps (Makefile (files_recursively_in packages)../src/client/opamMain.exe ../src/tools/opam_check.exe))
+   (action (run make all OPAM=${ROOT}/src/client/opamMain.exe CHECK=${ROOT}/src/tools/opam_check.exe))))
