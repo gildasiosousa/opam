@@ -234,7 +234,80 @@ let print_cycles cy =
     (OpamStd.List.concat_map arrow OpamFormula.to_string)
     cy
 
-let check ~quiet ~installability ~cycles ~ignore_test repo_root =
+(* Obsolete packages check *)
+
+(* Agregates of packages *)
+module Agr = OpamStd.Set.Make(OpamPackage.Set)
+module AgrM = OpamStd.Map.Make(OpamPackage.Set)
+
+module NAgrM = OpamStd.Map.Make(OpamPackage.Name.Set)
+
+let agregate univ = (* dummy: singleton agregates *)
+  (* todo: agregate all packages with an exclusive dependency to a given version *)
+  OpamPackage.Set.fold (fun nv acc -> Agr.add (OpamPackage.Set.singleton nv) acc)
+    univ.u_packages Agr.empty
+
+let pkg_deps univ package =
+  let deps =
+    try OpamFilter.filter_deps ~build:true ~post:false ~default:false
+          (OpamPackage.Map.find package univ.u_depends)
+    with Not_found -> Empty
+  in
+  let cnf = OpamFormula.to_cnf deps in
+  List.fold_left (fun acc disj ->
+      Agr.add
+        (OpamFormula.packages univ.u_packages
+           (OpamFormula.of_atom_formula
+              (OpamFormula.ors (List.map (fun a -> Atom a) disj))))
+        acc)
+    Agr.empty
+    cnf
+
+let pkgset_deps univ pkgs =
+  OpamPackage.Set.fold
+    (fun package acc -> Agr.union acc (pkg_deps univ package))
+    pkgs Agr.empty
+
+let is_inferior deps1 deps2 =
+  Agr.for_all
+    (fun disj2 -> Agr.exists (fun disj1 -> OpamPackage.Set.subset disj1 disj2) deps1)
+    deps2
+
+(* we work on agregates of packages (expected to be a.g. different names with
+   the same version), encode their dependencies as CNF mapped to sets, i.e. sets
+   of sets from each of which one package must be present.
+
+   Then, we detect agregates with an inferior version, and equivalent or less
+   restrictive dependencies: their members are obsolete *)
+let get_obsolete univ =
+  let ag = agregate univ in
+  let bynames =
+    Agr.fold (fun pkgs acc ->
+        NAgrM.update (OpamPackage.names_of_packages pkgs) (fun l -> pkgs :: l) [] acc)
+      ag NAgrM.empty
+  in
+  let depsets =
+    Agr.fold (fun pkgs acc ->
+        AgrM.add pkgs (pkgset_deps univ pkgs) acc)
+      ag AgrM.empty
+  in
+  NAgrM.fold (fun names pkgs_list acc ->
+      (* the list is ordered by decreasing version *)
+      let rec fld = function
+        | pl1 :: (pl :: _ as r)
+          when is_inferior (AgrM.find pl depsets) (AgrM.find pl1 depsets) ->
+          OpamConsole.errmsg "OBSOLETE: %s (<< %s)\n"
+            (OpamPackage.Set.to_string pl)
+            (OpamPackage.Set.to_string pl1);
+          pl ++ fld r
+        | _ :: r -> fld r
+        | [] -> acc
+      in
+      fld pkgs_list ++ acc
+    )
+    bynames OpamPackage.Set.empty
+
+let check ~quiet ~installability ~cycles ~obsolete ~ignore_test repo_root =
   let repo = OpamRepositoryBackend.local repo_root in
   let pkg_prefixes = OpamRepository.packages_with_prefixes repo in
   let opams =
@@ -285,4 +358,10 @@ let check ~quiet ~installability ~cycles ~ignore_test repo_root =
   if not quiet && cycle_formulas <> [] then
     (OpamConsole.error "Dependency cycles detected:";
      OpamConsole.errmsg "%s" @@ print_cycles cycle_formulas);
-  unav_roots, uninstallable, cycle_packages
+
+
+  let obsolete_packages =
+    if not obsolete then OpamPackage.Set.empty
+    else get_obsolete univ
+  in
+  unav_roots, uninstallable, cycle_packages, obsolete_packages

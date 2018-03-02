@@ -418,21 +418,27 @@ let check_command =
     OpamArg.mk_flag ["cycles"]
       "Do the cycles check (and disable the others by default)"
   in
-  let cmd global_options ignore_test print_short installability cycles =
+  let obsolete_arg =
+    OpamArg.mk_flag ["obsolete"]
+      "Analyse for obsolete packages"
+  in
+  let cmd global_options ignore_test print_short
+      installability cycles obsolete =
     OpamArg.apply_global_options global_options;
     let repo_root = OpamFilename.cwd () in
-    let installability, cycles =
-      if installability || cycles then installability, cycles
-      else true, true
+    let installability, cycles, obsolete =
+      if installability || cycles || obsolete
+      then installability, cycles, obsolete
+      else true, true, false
     in
     if not (OpamFilename.exists_dir OpamFilename.Op.(repo_root / "packages"))
     then
       OpamConsole.error_and_exit `Bad_arguments
         "No repository found in current directory.\n\
          Please make sure there is a \"packages\" directory";
-    let unav_roots, uninstallable, cycle_packages =
+    let unav_roots, uninstallable, cycle_packages, _obsolete =
       OpamAdminCheck.check
-        ~quiet:print_short ~installability ~cycles ~ignore_test
+        ~quiet:print_short ~installability ~cycles ~obsolete ~ignore_test
         repo_root
     in
     let all_ok =
@@ -458,7 +464,7 @@ let check_command =
     OpamStd.Sys.exit_because (if all_ok then `Success else `False)
   in
   Term.(const cmd $ OpamArg.global_options $ ignore_test_arg $ print_short_arg
-        $ installability_arg $ cycles_arg),
+        $ installability_arg $ cycles_arg $ obsolete_arg),
   OpamArg.term_info command ~doc ~man
 
 let pattern_list_arg =
